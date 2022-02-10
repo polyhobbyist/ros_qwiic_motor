@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>ros_qwiic_servo</name>
+  <name>ros_qwiic_motor</name>
   <version>0.0.0</version>
-  <description>ROS2 package for Sparkfun PWM Qwiic</description>
+  <description>ROS2 package for Sparkfun Qwiic Motor Controller</description>
   <maintainer email="lou@polyhobbyist.com">Lou Amadio</maintainer>
   <license>MIT</license>
 

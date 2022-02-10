@@ -27,11 +27,11 @@ SOFTWARE.
 #include "rclcpp/rclcpp.hpp"
 #include <boost/asio.hpp>
 #include <geometry_msgs/msg/twist.hpp>
-#include "i2c/i2c.h"
 
 #ifdef _WIN32
 #pragma optimize( "", off )
 #else
+#include "i2c/i2c.h"
 #pragma GCC optimize ("O0")
 #endif
 
@@ -40,7 +40,7 @@ using std::placeholders::_1;
 
 uint8_t kMotorNeutral = 128;
 
-typedef enum
+typedef enum : uint8_t
 {
    MotorCommand_Enable = 0x70,
    MotorCommand_Drive0 = 0x20,
@@ -61,6 +61,7 @@ class MotorSubscriber : public rclcpp::Node
 
     void start()
     {
+        #ifndef _WIN32
         if ((_i2cFileDescriptor = i2c_open("/dev/i2c-1")) == -1) 
         {
             return;
@@ -73,8 +74,9 @@ class MotorSubscriber : public rclcpp::Node
         _i2cDevice.flags = 0;
         _i2cDevice.page_bytes = 8;
         _i2cDevice.iaddr_bytes = 8;
+        #endif
 
-        reset();
+        disable();
 
         get_parameter_or<float>("wheelSeparation", _wheelSeparation, 50);
         get_parameter_or<float>("wheelRadius", _wheelRadius, 10);        
@@ -91,22 +93,22 @@ class MotorSubscriber : public rclcpp::Node
 
     void disable()
     {
-        command(MotorCommand_Enable, 0x01);
+        command(MotorCommand_Enable, 0x00);
     }
 
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
+        enable();
 
-      double angularComponent = _wheelSeparation / (2.0f * _wheelRadius);   // rads / second
-      double linearComponent = 1.0f;// _wheelRadius; // cm / second.
+        double angularComponent = _wheelSeparation / (2.0f * _wheelRadius);   // rads / second
+        double linearComponent = 1.0f;// _wheelRadius; // cm / second.
 
-      double speedRight = angularComponent * msg->angular.z + linearComponent * msg->linear.x;
-      double speedLeft = angularComponent * msg->angular.z - linearComponent * msg->linear.x;
+        double speedRight = angularComponent * msg->angular.z + linearComponent * msg->linear.x;
+        double speedLeft = angularComponent * msg->angular.z - linearComponent * msg->linear.x;
 
-      motor(0, speedRight);
-      motor(1, speedLeft);
+        motor(0, speedRight);
+        motor(1, speedLeft);
     }
-
 
     void motor(uint8_t channel, double power)
     {
@@ -124,19 +126,23 @@ class MotorSubscriber : public rclcpp::Node
 
     }
 
-    void command(QwiicMotorCommand command, uint8_t value)
+    void command(uint8_t command, uint8_t value)
     {
+        #ifndef _WIN32
         int ret = i2c_ioctl_write(&_i2cDevice, command, &value, 1);
         if (ret == -1 || (size_t)ret != 1)
         {
             RCLCPP_INFO(rclcpp::get_logger("motor"), "failed to write to motor controller: [%d]", ret);
         }
+        #endif
     }
 
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr _subscription[kChannels];
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr _subscription;
 
+    #ifndef _WIN32
     int _i2cFileDescriptor;
     I2CDevice _i2cDevice;
+    #endif
 
     float _wheelSeparation;
     float _wheelRadius;    
