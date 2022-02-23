@@ -42,12 +42,24 @@ uint8_t kMotorNeutral = 128;
 
 typedef enum : uint8_t
 {
+   MotorCommand_Id = 0x01,
+   MotorCommand_Status = 0x77,
    MotorCommand_Enable = 0x70,
    MotorCommand_Drive0 = 0x20,
    //..
    //MotorCommand_DriveX = 0x41,
    
 } QwiicMotorCommand;
+
+typedef enum : uint8_t
+{
+    MotorStatusBit_Enum = 0x01,
+    MotorStatusBit_Busy = 0x02,
+    MotorStatusBit_Read = 0x04,
+    MotorStatusBit_Write = 0x08,
+    MotorStatusBit_Enable = 0x10
+
+} QwiicMotorStatusBit;
 
 
 class MotorSubscriber : public rclcpp::Node
@@ -56,6 +68,9 @@ class MotorSubscriber : public rclcpp::Node
   public:
     MotorSubscriber()
     : Node("ros_qwiic_motor")
+    , _wheelSeparation(0.1)
+    , _wheelRadius(0.03)
+    , _powerScale(10.0) // power -> RPM
     {
     }
 
@@ -67,25 +82,92 @@ class MotorSubscriber : public rclcpp::Node
             return;
         }
 
+        i2c_init_device(&_i2cDevice);
+
         _i2cDevice.bus = _i2cFileDescriptor;
-        _i2cDevice.addr = 0x58;                 // TODO make configurable
-        _i2cDevice.tenbit = 0;
-        _i2cDevice.delay = 10;
-        _i2cDevice.flags = 0;
-        _i2cDevice.page_bytes = 8;
-        _i2cDevice.iaddr_bytes = 8;
+        _i2cDevice.addr = 0x5D;                 // TODO make configurable
         #endif
 
-        disable();
+        rclcpp::Rate loop_rate(1);
+        uint8_t id = getId();
+        RCLCPP_INFO(rclcpp::get_logger("motor"), "Communicating with motor id: [%d]", id);
 
-        get_parameter_or<float>("wheelSeparation", _wheelSeparation, 50);
-        get_parameter_or<float>("wheelRadius", _wheelRadius, 10);        
+        while (!ready())
+        {
+            RCLCPP_INFO(rclcpp::get_logger("motor"), "Waiting for Motor Controller to be ready");  
+            loop_rate.sleep();
+        }
+
+        while (busy())
+        {
+            RCLCPP_INFO(rclcpp::get_logger("motor"), "Waiting for Motor Controller, to not be busy...");  
+            loop_rate.sleep();
+        }
+        
+        enable();
+
+
+        get_parameter_or<float>("wheelSeparation", _wheelSeparation, .10);
+        get_parameter_or<float>("wheelRadius", _wheelRadius, .03);        
+        get_parameter_or<float>("powerScale", _powerScale, 41.0);        
 
         _subscription = this->create_subscription<geometry_msgs::msg::Twist>(
             "cmd_vel", 10, std::bind(&MotorSubscriber::cmdVelCallback, this, _1));        
     }
 
   private:
+    uint8_t getId()
+    {
+        uint8_t id = 0;
+        int ret = i2c_read(&_i2cDevice, MotorCommand_Id, &id, 1);
+        if (ret == -1 || (size_t)ret != 1)
+        {
+            RCLCPP_INFO(rclcpp::get_logger("motor"), "failed to read motor id: [%d]", ret);
+        }
+
+        return id;
+    }
+
+    // interesting that ready != busy
+    bool ready()
+    {
+        uint8_t status = 0;
+        int ret = i2c_read(&_i2cDevice, MotorCommand_Status, &status, 1);
+        if (ret == -1 || (size_t)ret != 1)
+        {
+            RCLCPP_INFO(rclcpp::get_logger("motor"), "failed to read motor status: [%d]", ret);
+        }
+
+        if (status != 0xFF &&
+            (status & MotorStatusBit_Enum) == MotorStatusBit_Enum)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    bool busy()
+    {
+        uint8_t status = 0;
+        int ret = i2c_read(&_i2cDevice, MotorCommand_Status, &status, 1);
+        if (ret == -1 || (size_t)ret != 1)
+        {
+            RCLCPP_INFO(rclcpp::get_logger("motor"), "failed to read motor status: [%d]", ret);
+        }
+
+        if (status & (MotorStatusBit_Busy | MotorStatusBit_Read | MotorStatusBit_Write))
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
     void enable()
     {
         command(MotorCommand_Enable, 0x01);
@@ -98,22 +180,28 @@ class MotorSubscriber : public rclcpp::Node
 
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
-        enable();
+        //enable();
 
         double angularComponent = _wheelSeparation / (2.0f * _wheelRadius);   // rads / second
-        double linearComponent = 1.0f;// _wheelRadius; // cm / second.
+        double linearComponent = _wheelRadius; // cm / second.
 
         double speedRight = angularComponent * msg->angular.z + linearComponent * msg->linear.x;
         double speedLeft = angularComponent * msg->angular.z - linearComponent * msg->linear.x;
 
-        motor(0, speedRight);
-        motor(1, speedLeft);
+        motor(0, speedRight * _powerScale);
+        motor(1, -speedLeft * _powerScale);
     }
 
     void motor(uint8_t channel, double power)
     {
-        // Motor controller does 0 - 255
-        int8_t powerLevel = (int8_t)((uint8_t)(std::abs(power) * 255.0) >> 7);   // signed
+        double powerAdjustment = std::abs(power);
+        if (powerAdjustment > 1.0)
+        {
+            powerAdjustment = 1.0;
+        }
+
+        // Motor controller does 0 +/- 128
+        uint8_t powerLevel = (uint8_t)(powerAdjustment * 128.0);
 
         if (power < 0)
         {
@@ -146,6 +234,7 @@ class MotorSubscriber : public rclcpp::Node
 
     float _wheelSeparation;
     float _wheelRadius;    
+    float _powerScale;
 };
 
 int main(int argc, char * argv[])
