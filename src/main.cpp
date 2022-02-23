@@ -70,13 +70,19 @@ class MotorSubscriber : public rclcpp::Node
     : Node("ros_qwiic_motor")
     , _wheelSeparation(0.1)
     , _wheelRadius(0.03)
-    , _powerScale(10.0) // power -> RPM
+    , _powerScale(.05) // power -> RPM
+    , _leftInvert(true)
+    , _rightInvert(true)
+    , _id(0x5D)
+
     {
     }
 
     void start()
     {
         #ifndef _WIN32
+        get_parameter_or<uint8_t>("id", _id, 0x5D);        
+
         if ((_i2cFileDescriptor = i2c_open("/dev/i2c-1")) == -1) 
         {
             return;
@@ -85,7 +91,7 @@ class MotorSubscriber : public rclcpp::Node
         i2c_init_device(&_i2cDevice);
 
         _i2cDevice.bus = _i2cFileDescriptor;
-        _i2cDevice.addr = 0x5D;                 // TODO make configurable
+        _i2cDevice.addr = _id;
         #endif
 
         rclcpp::Rate loop_rate(1);
@@ -108,8 +114,10 @@ class MotorSubscriber : public rclcpp::Node
 
 
         get_parameter_or<float>("wheelSeparation", _wheelSeparation, .10);
-        get_parameter_or<float>("wheelRadius", _wheelRadius, .03);        
-        get_parameter_or<float>("powerScale", _powerScale, 41.0);        
+        get_parameter_or<float>("wheelRadius", _wheelRadius, 0.03);        
+        get_parameter_or<float>("powerScale", _powerScale, 0.05);        
+        get_parameter_or<bool>("leftInverted", _leftInvert, true);        
+        get_parameter_or<bool>("rightInverted", _rightInvert, true);        
 
         _subscription = this->create_subscription<geometry_msgs::msg::Twist>(
             "cmd_vel", 10, std::bind(&MotorSubscriber::cmdVelCallback, this, _1));        
@@ -182,14 +190,11 @@ class MotorSubscriber : public rclcpp::Node
     {
         //enable();
 
-        double angularComponent = _wheelSeparation / (2.0f * _wheelRadius);   // rads / second
-        double linearComponent = _wheelRadius; // cm / second.
+        double speedRight = msg->linear.x + (msg->angular.z);
+        double speedLeft = msg->linear.x - (msg->angular.z);
 
-        double speedRight = angularComponent * msg->angular.z + linearComponent * msg->linear.x;
-        double speedLeft = angularComponent * msg->angular.z - linearComponent * msg->linear.x;
-
-        motor(0, speedRight * _powerScale);
-        motor(1, -speedLeft * _powerScale);
+        motor(0, (_rightInvert? -1.0 : 1.0) * (speedRight / _wheelRadius) * _powerScale);
+        motor(1, (_leftInvert? -1.0 : 1.0) * (speedLeft / _wheelRadius) * _powerScale);
     }
 
     void motor(uint8_t channel, double power)
@@ -200,10 +205,10 @@ class MotorSubscriber : public rclcpp::Node
             powerAdjustment = 1.0;
         }
 
-        // Motor controller does 0 +/- 128
-        uint8_t powerLevel = (uint8_t)(powerAdjustment * 128.0);
+        // Motor controller does 0 +/- 255, with 128 as median
+        uint8_t powerLevel = (uint8_t)(powerAdjustment * 127.0);
 
-        if (power < 0)
+        if (power < 0.0)
         {
             command(MotorCommand_Drive0 + channel, kMotorNeutral - powerLevel);
         }
@@ -235,6 +240,9 @@ class MotorSubscriber : public rclcpp::Node
     float _wheelSeparation;
     float _wheelRadius;    
     float _powerScale;
+    bool _leftInvert;
+    bool _rightInvert;
+    uint8_t _id;
 };
 
 int main(int argc, char * argv[])
