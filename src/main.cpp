@@ -71,8 +71,8 @@ class MotorSubscriber : public rclcpp::Node
     , _wheelSeparation(0.1)
     , _wheelRadius(0.03)
     , _powerScale(.05) // power -> RPM
-    , _leftInvert(true)
-    , _rightInvert(true)
+    , _leftInvert(false)
+    , _rightInvert(false)
     , _id(0x5D)
 
     {
@@ -116,8 +116,8 @@ class MotorSubscriber : public rclcpp::Node
         get_parameter_or<float>("wheelSeparation", _wheelSeparation, .10);
         get_parameter_or<float>("wheelRadius", _wheelRadius, 0.03);        
         get_parameter_or<float>("powerScale", _powerScale, 0.05);        
-        get_parameter_or<bool>("leftInverted", _leftInvert, true);        
-        get_parameter_or<bool>("rightInverted", _rightInvert, true);        
+        get_parameter_or<bool>("leftInverted", _leftInvert, false);        
+        get_parameter_or<bool>("rightInverted", _rightInvert, false);        
 
         _subscription = this->create_subscription<geometry_msgs::msg::Twist>(
             "cmd_vel", 10, std::bind(&MotorSubscriber::cmdVelCallback, this, _1));        
@@ -190,8 +190,8 @@ class MotorSubscriber : public rclcpp::Node
     {
         //enable();
 
-        double speedRight = msg->linear.x + (msg->angular.z);
-        double speedLeft = msg->linear.x - (msg->angular.z);
+        double speedRight = msg->linear.x + msg->angular.z;
+        double speedLeft = msg->linear.x - msg->angular.z;
 
         motor(0, (_rightInvert? -1.0 : 1.0) * (speedRight / _wheelRadius) * _powerScale);
         motor(1, (_leftInvert? -1.0 : 1.0) * (speedLeft / _wheelRadius) * _powerScale);
