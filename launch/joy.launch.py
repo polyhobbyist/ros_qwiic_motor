@@ -10,16 +10,6 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-
-    """
-    teleop_launch_file = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([os.path.join(
-            get_package_share_directory('teleop_twist_joy'), 'launch'),
-                '/teleop-launch.py']),
-        launch_arguments={'joy_config': 'xbox', 'joy_dev': ''}.items(),
-        )
-    """
-
     config_filepath = os.path.join(
             get_package_share_directory('teleop_twist_joy'), 'config', 'xbox.config.yaml')
 
@@ -41,6 +31,6 @@ def generate_launch_description():
         )
 
     return LaunchDescription([
-        joy_node,
+        # joy_node,
         teleop_twist_joy_node
     ])
