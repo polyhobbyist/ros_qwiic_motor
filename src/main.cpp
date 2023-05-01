@@ -188,8 +188,8 @@ class MotorSubscriber : public rclcpp::Node
 
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
-        double speedRight = msg->linear.x - msg->angular.z;
-        double speedLeft = msg->linear.x + msg->angular.z;
+        double speedRight = msg->linear.x + msg->angular.z;
+        double speedLeft = msg->linear.x - msg->angular.z;
 
         motor(0, (_rightInvert? -1.0 : 1.0) * (speedRight * (_wheelSeparation / 2.0) / _wheelRadius) * _powerScale);
         motor(1, (_leftInvert? -1.0 : 1.0) * (speedLeft *(_wheelSeparation / 2.0) / _wheelRadius) * _powerScale);
